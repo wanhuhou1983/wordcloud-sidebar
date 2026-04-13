@@ -1,0 +1,12 @@
+{
+	"id": "wordcloud-sidebar",
+	"name": "WordCloud Sidebar",
+	"version": "1.0.0",
+	"description": "在右侧边栏生成当前笔记的词云图。点击词云图标即可生成。",
+	"author": "Custom",
+	"authorUrl": "",
+	"isDesktopOnly": true,
+	"minAppVersion": "1.0.0",
+	"js": "main.js",
+	"styles": ["styles.css"]
+}
