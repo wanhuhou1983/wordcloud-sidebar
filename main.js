@@ -2,6 +2,7 @@
  * WordCloud Sidebar - Obsidian 插件
  * 右侧边栏词云生成器
  * ============================================================================ */
+var obsidian = require('obsidian');
 
 const VIEW_TYPE_WORDCLOUD = 'wordcloud-sidebar-view';
 const SERVER_URL = 'http://127.0.0.1:8766';
@@ -10,12 +11,17 @@ const SERVER_WORDCLOUD_ENDPOINT = `${SERVER_URL}/wordcloud/base64`;
 /* ---------------------------------------------------------------------------
  * 词云侧边栏视图
  * --------------------------------------------------------------------------- */
-class WordCloudSidebarView {
+class WordCloudSidebarView extends obsidian.ItemView {
     constructor(leaf, plugin) {
-        this.leaf = leaf;
+        super(leaf);
         this.plugin = plugin;
         this.container = null;
         this.status = 'idle'; // idle | loading | success | error | server-offline
+    }
+
+    /* 视图类型 */
+    getViewType() {
+        return VIEW_TYPE_WORDCLOUD;
     }
 
     /* 视图图标 */
@@ -30,7 +36,7 @@ class WordCloudSidebarView {
 
     /* DOM 渲染 */
     async onOpen() {
-        this.container = this.leaf.containerEl;
+        this.container = this.containerEl;
         this.render();
     }
 
@@ -146,16 +152,12 @@ class WordCloudSidebarView {
         const content = this.container.querySelector('.wordcloud-content');
         if (content) this.refreshContent(content);
 
-        /* 3. 调用词云服务 */
+        /* 3. 调用词云服务（使用 Obsidian requestUrl API） */
         try {
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 30000); // 30s 超时
-
-            const response = await fetch(SERVER_WORDCLOUD_ENDPOINT, {
+            const response = await obsidian.requestUrl({
+                url: SERVER_WORDCLOUD_ENDPOINT,
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     text: text,
                     width: 700,
@@ -164,21 +166,10 @@ class WordCloudSidebarView {
                     top_n: 80,
                     colormap: 'viridis'
                 }),
-                signal: controller.signal
+                throw: true
             });
 
-            clearTimeout(timeout);
-
-            if (!response.ok) {
-                let errMsg = `HTTP ${response.status}`;
-                try {
-                    const errData = await response.json();
-                    errMsg = errData.error || errMsg;
-                } catch (_) {}
-                throw new Error(errMsg);
-            }
-
-            const data = await response.json();
+            const data = JSON.parse(response.text);
 
             if (!data.success || !data.image) {
                 throw new Error(data.error || '服务返回数据格式错误');
@@ -189,15 +180,14 @@ class WordCloudSidebarView {
             if (content) this.refreshContent(content);
 
         } catch (err) {
-            if (err.name === 'AbortError') {
-                this.status = 'error';
-                this.errorMessage = '请求超时（30秒）';
-            } else if (err.message.includes('fetch') || err.message.includes('ERR_CONNECTION_REFUSED') || err.message.includes('NetworkError')) {
+            const errMsg = err.message || String(err);
+            console.error('[WordCloud] 请求失败:', errMsg);
+            if (errMsg.includes('ECONNREFUSED') || errMsg.includes('net::') || errMsg.includes('ERR_CONNECTION')) {
                 this.status = 'server-offline';
                 this.errorMessage = '';
             } else {
                 this.status = 'error';
-                this.errorMessage = err.message;
+                this.errorMessage = errMsg;
             }
             const c = this.container.querySelector('.wordcloud-content');
             if (c) this.refreshContent(c);
@@ -212,7 +202,7 @@ class WordCloudSidebarView {
 /* ---------------------------------------------------------------------------
  * 插件主体
  * --------------------------------------------------------------------------- */
-class WordCloudSidebarPlugin extends Plugin {
+class WordCloudSidebarPlugin extends obsidian.Plugin {
     view = null;
     state = 'collapsed'; // collapsed | expanded
 
@@ -288,4 +278,6 @@ class WordCloudSidebarPlugin extends Plugin {
     }
 }
 
+/* make class available globally for Obsidian's plugin loader */
+window.WordCloudSidebarPlugin = WordCloudSidebarPlugin;
 module.exports = WordCloudSidebarPlugin;
