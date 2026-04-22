@@ -166,6 +166,7 @@
  * --------------------------------------------------------------------------- */
 .wordcloud-settings-dep {
     flex-direction: column;
+    align-items: flex-start;
 }
 
 .wordcloud-settings-info {

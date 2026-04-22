@@ -1,12 +1,13 @@
 /* ============================================================================
  * WordCloud Sidebar - Obsidian 插件
- * 右侧边栏词云生成器 (v1.1.2)
+ * 右侧边栏词云生成器 (v1.1.3)
  * ============================================================================ */
 var obsidian = require('obsidian');
 
 const VIEW_TYPE_WORDCLOUD = 'wordcloud-sidebar-view';
 const DEFAULT_SERVER_URL = 'http://127.0.0.1:8766';
 const VIEW_TIMEOUT_MS = 20000; // 20s 请求超时
+const MAX_TEXT_LENGTH = 50000;  // 最大发送字数，防止长笔记压垮服务
 
 /* ---------------------------------------------------------------------------
  * 设置选项卡
@@ -113,17 +114,23 @@ class WordCloudSidebarView extends obsidian.ItemView {
         this.container = this.containerEl;
         this.render();
 
+        // 防抖版本的 generate（300ms 内只执行最后一次）
+        this._debouncedGenerate = obsidian.debounce(
+            () => this.generate(),
+            300,
+            true // true = 立即执行一次，之后等待冷静期
+        );
+
         // 注册文件切换事件（切换笔记时自动重新生成词云）
         this.registerEvent(
             this.plugin.app.workspace.on('file-open', (file) => {
                 if (file && this.status !== 'server-offline') {
-                    this.generate();
+                    this._debouncedGenerate();
                 }
             })
         );
 
         // 侧边栏初次打开时，若当前已有打开的笔记，立即生成一次
-        // （file-open 事件不在视图激活时触发，所以这里需要手动补一次）
         const activeFile = this.plugin.app.workspace.getActiveFile();
         if (activeFile && this.status !== 'server-offline') {
             this.generate();
@@ -151,7 +158,7 @@ class WordCloudSidebarView extends obsidian.ItemView {
 
         this.refreshContent(content);
 
-        // reloadBtn 使用 registerDomEvent（自动生命周期管理）
+        // reloadBtn 使用 registerDomEvent（Obsidian 在 onClose 时自动清理）
         const reloadBtn = header.querySelector('.wordcloud-reload-btn');
         this.registerDomEvent(reloadBtn, 'click', () => this.generate());
     }
@@ -182,23 +189,23 @@ class WordCloudSidebarView extends obsidian.ItemView {
             content.appendChild(img);
         } else if (this.status === 'error') {
             // XSS 安全：完全用 DOM API + textContent，不走 innerHTML
-            const state = content.createDiv('wordcloud-state wordcloud-error');
-            state.createDiv('wordcloud-icon-large').textContent = '⚠️';
-            const p = state.createEl('p', 'error-message');
+            const state = content.createDiv({ cls: ['wordcloud-state', 'wordcloud-error'] });
+            state.createDiv({ cls: 'wordcloud-icon-large' }).textContent = '⚠️';
+            const p = state.createEl('p', { cls: 'error-message' });
             p.textContent = this.errorMessage || '生成失败';
 
         } else if (this.status === 'server-offline') {
-            const state = content.createDiv('wordcloud-state wordcloud-server-offline');
-            state.createDiv('wordcloud-icon-large').textContent = '🖥️';
+            const state = content.createDiv({ cls: ['wordcloud-state', 'wordcloud-server-offline'] });
+            state.createDiv({ cls: 'wordcloud-icon-large' }).textContent = '🖥️';
             state.createEl('p').textContent = '词云服务未启动';
-            state.createEl('p', 'sub-text').textContent = '请先安装并启动服务：';
+            state.createEl('p', { cls: 'sub-text' }).textContent = '请先安装并启动服务：';
 
-            const cmdBlock = state.createDiv('cmd-block');
-            cmdBlock.createDiv('cmd-line').textContent = 'pip install wordcloud jieba matplotlib';
-            cmdBlock.createDiv('cmd-line').textContent = 'python wordcloud_server.py';
+            const cmdBlock = state.createDiv({ cls: 'cmd-block' });
+            cmdBlock.createDiv({ cls: 'cmd-line' }).textContent = 'pip install wordcloud jieba matplotlib';
+            cmdBlock.createDiv({ cls: 'cmd-line' }).textContent = 'python wordcloud_server.py';
 
             // retry-btn 用 registerDomEvent 注册（Obsidian 在 onClose 时自动清理）
-            const retryBtn = state.createEl('button', 'retry-btn');
+            const retryBtn = state.createEl('button', { cls: 'retry-btn' });
             retryBtn.textContent = '重试连接';
             this.registerDomEvent(retryBtn, 'click', () => this.generate());
         }
@@ -226,7 +233,7 @@ class WordCloudSidebarView extends obsidian.ItemView {
         const activeFile = this.plugin.app.workspace.getActiveFile();
         if (!activeFile) {
             this.status = 'idle';
-            const c = this.container.querySelector('.wordcloud-content');
+            const c = this.container?.querySelector('.wordcloud-content');
             if (c) this.refreshContent(c);
             return;
         }
@@ -246,7 +253,7 @@ class WordCloudSidebarView extends obsidian.ItemView {
             }
 
             this.status = 'loading';
-            const content = this.container.querySelector('.wordcloud-content');
+            const content = this.container?.querySelector('.wordcloud-content');
             if (content) this.refreshContent(content);
 
             // 深色模式适配
@@ -254,13 +261,16 @@ class WordCloudSidebarView extends obsidian.ItemView {
             const serverUrl = this.plugin.settings.serverUrl || DEFAULT_SERVER_URL;
             const topN = this.plugin.settings.topN || 80;
 
+            // 截断超长文本，防止请求体过大
+            const trimmedText = text.slice(0, MAX_TEXT_LENGTH);
+
             // 使用 Obsidian requestUrl，超时由 timeout 参数控制
             const response = await obsidian.requestUrl({
                 url: `${serverUrl}/wordcloud/base64`,
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    text: text,
+                    text: trimmedText,
                     width: 700,
                     height: 500,
                     background_color: bg,
@@ -298,7 +308,7 @@ class WordCloudSidebarView extends obsidian.ItemView {
                 this.errorMessage = errMsg;
             }
 
-            const c = this.container.querySelector('.wordcloud-content');
+            const c = this.container?.querySelector('.wordcloud-content');
             if (c) this.refreshContent(c);
         } finally {
             this.isGenerating = false;
