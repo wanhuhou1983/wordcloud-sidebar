@@ -123,17 +123,22 @@
     max-width: 220px;
 }
 
-.wordcloud-server-offline .cmd-code {
+.wordcloud-server-offline .cmd-block {
     background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
     border-radius: 4px;
     padding: 8px 12px;
-    font-size: 11px;
+    font-size: 12px;
     font-family: monospace;
     color: var(--text-accent);
     word-break: break-all;
     max-width: 260px;
     margin-top: 4px;
+}
+
+.wordcloud-server-offline .cmd-line {
+    color: var(--text-muted);
+    line-height: 1.6;
 }
 
 .wordcloud-server-offline .sub-text {

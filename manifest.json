@@ -1,12 +1,11 @@
 {
 	"id": "wordcloud-sidebar",
 	"name": "WordCloud Sidebar",
-	"version": "1.0.1",
-	"description": "在右侧边栏生成当前笔记的词云图。点击词云图标即可生成。",
+	"version": "1.1.1",
+	"description": "在右侧边栏生成当前笔记的词云图。支持深色模式、自动切换笔记、服务地址可配置。",
 	"author": "wanhuhou1983",
 	"authorUrl": "https://github.com/wanhuhou1983",
 	"isDesktopOnly": true,
 	"minAppVersion": "1.5.0",
-	"main": "main.js",
-	"styles": ["styles.css"]
+	"main": "main.js"
 }
