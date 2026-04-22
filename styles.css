@@ -160,3 +160,24 @@
 .wordcloud-server-offline .retry-btn:hover {
     opacity: 0.85;
 }
+
+/* ---------------------------------------------------------------------------
+ * 设置页
+ * --------------------------------------------------------------------------- */
+.wordcloud-settings-dep {
+    flex-direction: column;
+}
+
+.wordcloud-settings-info {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.6;
+    padding: 8px;
+    background: var(--background-secondary);
+    border-radius: 4px;
+    margin-top: 4px;
+}
+
+.wordcloud-settings-info p {
+    margin: 0;
+}

@@ -83,15 +83,13 @@ class WordCloudSidebarSettingTab extends obsidian.PluginSettingTab {
         new obsidian.Setting(containerEl)
             .setName('词云服务依赖')
             .setDesc('需要先安装并启动 wordcloud-freq 服务')
-            .settingEl.style.flexDirection = 'column';
+            .settingEl.addClass('wordcloud-settings-dep');
         const infoEl = containerEl.createEl('div', {
             cls: 'wordcloud-settings-info',
-            text: '安装方式：pip install wordcloud jieba matplotlib\n'
-                + '启动服务：python wordcloud_server.py\n'
-                + '服务地址：http://127.0.0.1:8766'
         });
-        infoEl.style.cssText = 'font-size:12px;color:var(--text-muted);line-height:1.6;padding:8px;'
-            + 'background:var(--background-secondary);border-radius:4px;margin-top:4px;';
+        infoEl.createEl('p', { text: '安装依赖：pip install wordcloud jieba matplotlib' });
+        infoEl.createEl('p', { text: '启动服务：python wordcloud_server.py' });
+        infoEl.createEl('p', { text: '服务地址：http://127.0.0.1:8766' });
     }
 }
 
@@ -115,7 +113,7 @@ class WordCloudSidebarView extends obsidian.ItemView {
         this.container = this.containerEl;
         this.render();
 
-        // 切换笔记时自动重新生成词云
+        // 注册文件切换事件（切换笔记时自动重新生成词云）
         this.registerEvent(
             this.plugin.app.workspace.on('file-open', (file) => {
                 if (file && this.status !== 'server-offline') {
@@ -123,6 +121,13 @@ class WordCloudSidebarView extends obsidian.ItemView {
                 }
             })
         );
+
+        // 侧边栏初次打开时，若当前已有打开的笔记，立即生成一次
+        // （file-open 事件不在视图激活时触发，所以这里需要手动补一次）
+        const activeFile = this.plugin.app.workspace.getActiveFile();
+        if (activeFile && this.status !== 'server-offline') {
+            this.generate();
+        }
     }
 
     render() {
@@ -176,39 +181,40 @@ class WordCloudSidebarView extends obsidian.ItemView {
             img.draggable = false;
             content.appendChild(img);
         } else if (this.status === 'error') {
-            content.innerHTML = `
-                <div class="wordcloud-state wordcloud-error">
-                    <div class="wordcloud-icon-large">⚠️</div>
-                    <p class="error-message">${this.errorMessage || '生成失败'}</p>
-                </div>
-            `;
+            // XSS 安全：完全用 DOM API + textContent，不走 innerHTML
+            const state = content.createDiv('wordcloud-state wordcloud-error');
+            state.createDiv('wordcloud-icon-large').textContent = '⚠️';
+            const p = state.createEl('p', 'error-message');
+            p.textContent = this.errorMessage || '生成失败';
+
         } else if (this.status === 'server-offline') {
-            content.innerHTML = `
-                <div class="wordcloud-state wordcloud-server-offline">
-                    <div class="wordcloud-icon-large">🖥️</div>
-                    <p>词云服务未启动</p>
-                    <p class="sub-text">请先安装并启动服务：</p>
-                    <div class="cmd-block">
-                        <div class="cmd-line">pip install wordcloud jieba matplotlib</div>
-                        <div class="cmd-line">python wordcloud_server.py</div>
-                    </div>
-                    <button class="retry-btn">重试连接</button>
-                </div>
-            `;
-            // retry-btn 用延迟绑定（DOM 由 innerHTML 动态生成，render() 的 registerDomEvent 管不到这里）
-            this._retryBtnHandler = () => this.generate();
-            content.querySelector('.retry-btn').addEventListener('click', this._retryBtnHandler);
+            const state = content.createDiv('wordcloud-state wordcloud-server-offline');
+            state.createDiv('wordcloud-icon-large').textContent = '🖥️';
+            state.createEl('p').textContent = '词云服务未启动';
+            state.createEl('p', 'sub-text').textContent = '请先安装并启动服务：';
+
+            const cmdBlock = state.createDiv('cmd-block');
+            cmdBlock.createDiv('cmd-line').textContent = 'pip install wordcloud jieba matplotlib';
+            cmdBlock.createDiv('cmd-line').textContent = 'python wordcloud_server.py';
+
+            // retry-btn 用 registerDomEvent 注册（Obsidian 在 onClose 时自动清理）
+            const retryBtn = state.createEl('button', 'retry-btn');
+            retryBtn.textContent = '重试连接';
+            this.registerDomEvent(retryBtn, 'click', () => this.generate());
         }
     }
 
     /** 检测 Obsidian 深色模式，返回 { bg, colormap } */
     _detectTheme() {
-        const isDark = document.body.classList.contains('theme-dark');
+        // 优先级：用户自定义配置 > 深色/浅色 class > 系统跟随
         const settings = this.plugin.settings;
         if (settings.backgroundColor) {
-            // 用户在设置页自定义了背景色，优先用用户配置
             return { bg: settings.backgroundColor, colormap: settings.colormap || 'viridis' };
         }
+        const isDarkClass = document.body.classList.contains('theme-dark');
+        const isLightClass = document.body.classList.contains('theme-light');
+        const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+        const isDark = isDarkClass || (!isLightClass && prefersDark);
         return isDark
             ? { bg: '#1e1e1e', colormap: 'plasma' }
             : { bg: 'white', colormap: 'viridis' };
@@ -300,12 +306,7 @@ class WordCloudSidebarView extends obsidian.ItemView {
     }
 
     onClose() {
-        // 清理动态绑定的 retry-btn 监听器
-        if (this._retryBtnHandler) {
-            const btn = this.container?.querySelector?.('.retry-btn');
-            if (btn) btn.removeEventListener('click', this._retryBtnHandler);
-            this._retryBtnHandler = null;
-        }
+        // registerDomEvent 注册的监听器由 Obsidian 自动清理，此处无需手动操作
         this.container = null;
     }
 }
@@ -314,10 +315,6 @@ class WordCloudSidebarView extends obsidian.ItemView {
  * 插件主体
  * --------------------------------------------------------------------------- */
 class WordCloudSidebarPlugin extends obsidian.Plugin {
-
-    get endpoint() {
-        return `${this.settings.serverUrl || DEFAULT_SERVER_URL}/wordcloud/base64`;
-    }
 
     async onload() {
         await this.loadSettings();
@@ -364,7 +361,10 @@ class WordCloudSidebarPlugin extends obsidian.Plugin {
         const { workspace } = this.app;
         const leaves = workspace.getLeavesOfType(VIEW_TYPE_WORDCLOUD);
         if (leaves.length > 0) {
-            leaves.forEach(leaf => leaf.detach());
+            // leaf.detach() 返回 Promise，逐一等待完成后再返回
+            for (const leaf of leaves) {
+                await leaf.detach();
+            }
         } else {
             await this.activateView();
         }
@@ -383,10 +383,7 @@ class WordCloudSidebarPlugin extends obsidian.Plugin {
         }
 
         workspace.revealLeaf(leaf);
-
-        if (leaf.view instanceof WordCloudSidebarView) {
-            leaf.view.generate();
-        }
+        // 视图打开后的初始生成由 onOpen() 中的逻辑处理，避免 file-open 与此处重复触发
     }
 
     onunload() {
