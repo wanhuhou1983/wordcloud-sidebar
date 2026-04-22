@@ -104,6 +104,8 @@ class WordCloudSidebarView extends obsidian.ItemView {
         this.container = null;
         this.status = 'idle'; // idle | loading | success | error | server-offline
         this.isGenerating = false; // 防抖锁
+        /** 记录当前 generate() 请求对应的目标文件路径，finally 中检查是否已切换 */
+        this._currentTargetPath = null;
     }
 
     getViewType() { return VIEW_TYPE_WORDCLOUD; }
@@ -114,11 +116,11 @@ class WordCloudSidebarView extends obsidian.ItemView {
         this.container = this.containerEl;
         this.render();
 
-        // 防抖版本的 generate（300ms 内只执行最后一次）
+        // 防抖版本的 generate（leading=true 保证第一次立即响应）
         this._debouncedGenerate = obsidian.debounce(
             () => this.generate(),
             300,
-            true // true = 立即执行一次，之后等待冷静期
+            true // leading: 首次立即执行，之后冷静期内丢弃
         );
 
         // 注册文件切换事件（切换笔记时自动重新生成词云）
@@ -130,10 +132,11 @@ class WordCloudSidebarView extends obsidian.ItemView {
             })
         );
 
-        // 侧边栏初次打开时，若当前已有打开的笔记，立即生成一次
+        // 侧边栏初次打开时，若当前已有打开的笔记，通过 debounce 触发
+        // （统一走 debounce，避免与 file-open 事件竞争）
         const activeFile = this.plugin.app.workspace.getActiveFile();
         if (activeFile && this.status !== 'server-offline') {
-            this.generate();
+            this._debouncedGenerate();
         }
     }
 
@@ -167,19 +170,15 @@ class WordCloudSidebarView extends obsidian.ItemView {
         content.empty();
 
         if (this.status === 'loading') {
-            content.innerHTML = `
-                <div class="wordcloud-state wordcloud-loading">
-                    <div class="wordcloud-spinner"></div>
-                    <p>正在生成词云…</p>
-                </div>
-            `;
+            // 统一用 DOM API，与 error/server-offline 风格一致
+            const state = content.createDiv({ cls: ['wordcloud-state', 'wordcloud-loading'] });
+            state.createDiv({ cls: 'wordcloud-spinner' });
+            state.createEl('p').textContent = '正在生成词云…';
+
         } else if (this.status === 'idle') {
-            content.innerHTML = `
-                <div class="wordcloud-state wordcloud-idle">
-                    <div class="wordcloud-icon-large">☁️</div>
-                    <p>打开笔记，自动生成词云</p>
-                </div>
-            `;
+            const state = content.createDiv({ cls: ['wordcloud-state', 'wordcloud-idle'] });
+            state.createDiv({ cls: 'wordcloud-icon-large' }).textContent = '☁️';
+            state.createEl('p').textContent = '打开笔记，自动生成词云';
         } else if (this.status === 'success') {
             const img = document.createElement('img');
             img.src = this.imageDataUrl;
@@ -239,6 +238,7 @@ class WordCloudSidebarView extends obsidian.ItemView {
         }
 
         this.isGenerating = true;
+        this._currentTargetPath = activeFile.path; // 记录本次请求目标
 
         try {
             let text;
@@ -285,6 +285,14 @@ class WordCloudSidebarView extends obsidian.ItemView {
 
             if (!data.success || !data.image) {
                 throw new Error(data.error || '服务返回数据格式错误');
+            }
+
+            // 【文件切换检查】请求完成时，目标文件是否仍是当前文件？
+            const currentFile = this.plugin.app.workspace.getActiveFile();
+            if (currentFile?.path !== this._currentTargetPath) {
+                // 用户已切换到其他笔记，丢弃此结果，重新触发一次生成
+                this._debouncedGenerate?.();
+                return;
             }
 
             this.status = 'success';
