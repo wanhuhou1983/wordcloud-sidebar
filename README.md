@@ -26,8 +26,9 @@
 pip install wordcloud jieba matplotlib
 
 # 2. 下载词云服务脚本
-#    仓库：https://github.com/your-repo/wordcloud-freq
-#    或从 WorkBuddy skills 目录获取
+#    服务脚本位于 WorkBuddy skills 目录：
+#    C:\Users\linhu\.workbuddy\skills\wordcloud-freq\scripts\wordcloud_server.py
+#    或运行命令获取：pip install wordcloud-freq-skill（如果可用）
 
 # 3. 启动服务（默认端口 8766）
 python wordcloud_server.py

@@ -1,6 +1,6 @@
 /* ============================================================================
  * WordCloud Sidebar - Obsidian 插件
- * 右侧边栏词云生成器 (v1.1.3)
+ * 右侧边栏词云生成器 (v1.1.5)
  * ============================================================================ */
 var obsidian = require('obsidian');
 
@@ -155,6 +155,12 @@ class WordCloudSidebarView extends obsidian.ItemView {
         `;
         wrapper.appendChild(header);
 
+        // server-offline 时隐藏 reloadBtn（与内容区 retry-btn 功能重复）
+        const reloadBtn = header.querySelector('.wordcloud-reload-btn');
+        if (this.status === 'server-offline') {
+            reloadBtn.style.display = 'none';
+        }
+
         const content = document.createElement('div');
         content.className = 'wordcloud-content';
         wrapper.appendChild(content);
@@ -290,8 +296,7 @@ class WordCloudSidebarView extends obsidian.ItemView {
             // 【文件切换检查】请求完成时，目标文件是否仍是当前文件？
             const currentFile = this.plugin.app.workspace.getActiveFile();
             if (currentFile?.path !== this._currentTargetPath) {
-                // 用户已切换到其他笔记，丢弃此结果，重新触发一次生成
-                this._debouncedGenerate?.();
+                // 用户已切换笔记，标记切换状态（不在此处重触发，由 finally 处理）
                 return;
             }
 
@@ -319,7 +324,13 @@ class WordCloudSidebarView extends obsidian.ItemView {
             const c = this.container?.querySelector('.wordcloud-content');
             if (c) this.refreshContent(c);
         } finally {
+            // 文件切换检查：锁释放后重触发，确保新笔记词云生成
+            const switched = this._currentTargetPath !== null
+                && this.plugin.app.workspace.getActiveFile()?.path !== this._currentTargetPath;
             this.isGenerating = false;
+            if (switched) {
+                this._debouncedGenerate?.();
+            }
         }
     }
 
@@ -396,7 +407,7 @@ class WordCloudSidebarPlugin extends obsidian.Plugin {
         if (leaves.length > 0) {
             leaf = leaves[0];
         } else {
-            leaf = workspace.getRightLeaf(false);
+            leaf = workspace.getRightLeaf(false) ?? workspace.getLeaf('split');
             await leaf.setViewState({ type: VIEW_TYPE_WORDCLOUD, active: true });
         }
 
