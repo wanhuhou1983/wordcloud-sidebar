@@ -168,7 +168,6 @@ class WordCloudSidebarView extends obsidian.ItemView {
         this.refreshContent(content);
 
         // reloadBtn 使用 registerDomEvent（Obsidian 在 onClose 时自动清理）
-        const reloadBtn = header.querySelector('.wordcloud-reload-btn');
         this.registerDomEvent(reloadBtn, 'click', () => this.generate());
     }
 
